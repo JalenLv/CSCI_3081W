@@ -1,0 +1,4 @@
+*_app
+*.o
+*.d
+transit_service
