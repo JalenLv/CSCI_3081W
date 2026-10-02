@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdio>
+#include <algorithm>
 #include "TransitService.h"
 
 using namespace MetroTransitAPI;
@@ -69,6 +70,12 @@ void realTimeInfo(TransitService& service) {
     std::cout << std::endl;
 
     // TODO: list directions
+    std::cout << "Available Directions:"   << std::endl
+              << "-----------------------" << std::endl;
+    const auto &directions = service.GetDirections(routeId);
+    for (const auto &direction : directions) 
+        std::cout << direction.id <<": " << direction.name << std::endl;
+    std::cout << std::endl;
 
     int dirId;
     std::cout << "Enter a direction: ";
@@ -76,6 +83,12 @@ void realTimeInfo(TransitService& service) {
     std::cout << std::endl;
 
     // TODO: list stops
+    std::cout << "Available Stops:"        << std::endl
+              << "-----------------------" << std::endl;
+    const auto &stops = service.GetStops(routeId, dirId);
+    for (const auto &stop : stops) 
+        std::cout << stop.placeCode <<": " << stop.description << std::endl;
+    std::cout << std::endl;
 
     std::string code;
     std::cout << "Enter a stop: ";
@@ -83,4 +96,21 @@ void realTimeInfo(TransitService& service) {
     std::cout << std::endl;
 
     // TODO: Output location information along with the next scheduled trip
+    auto it = std::find_if(stops.begin(), stops.end(), [&code](const Stop& stop) {
+        return stop.placeCode == code;
+    });
+    if (it == stops.end()) {
+        std::cout << "Invalid stop code." << std::endl;
+        return;
+    }
+
+    std::cout << it->description << std::endl;
+    std::cout << "-----------------------" << std::endl;
+
+    const auto &stopDetails = service.GetStopDetail(routeId, dirId, code);
+    const auto &stopDetail  = stopDetails[0];
+    std::cout << "Latitude: "  << stopDetail.latitude  << std::endl;
+    std::cout << "Longitude: " << stopDetail.longitude << std::endl;
+    std::cout << "Next Departure: " << stopDetail.nextDepartureText;
+    std::cout << std::endl;
 }
