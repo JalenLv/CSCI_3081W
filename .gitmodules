@@ -4,3 +4,6 @@
 [submodule "Projs/sprint_1"]
 	path = Projs/sprint_1
 	url = github:csci-3081-20-f26/csci-3081-students-sprint-1-prototype-and-research-group-9.git
+[submodule "Labs/lab09"]
+	path = Labs/lab09
+	url = github:csci-3081-20-f26/csci-3081-students-lab09-group-36.git
