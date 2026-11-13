@@ -7,3 +7,6 @@
 [submodule "Labs/lab09"]
 	path = Labs/lab09
 	url = github:csci-3081-20-f26/csci-3081-students-lab09-group-36.git
+[submodule "Labs/lab10"]
+	path = Labs/lab10
+	url = github:csci-3081-20-f26/csci-3081-students-lab-10-observer-pattern-lab-group-46.git
