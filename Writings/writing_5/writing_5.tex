@@ -1,0 +1,252 @@
+% Writing 5: Design of Measured Building Geometry
+% Build: ./build_pdf.sh   (latexmk -xelatex writing_5.tex)
+% XeLaTeX/LuaLaTeX use Charis SIL; pdfLaTeX falls back to XCharter or the default fonts.
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \IfFileExists{XCharter.sty}{\usepackage{XCharter}}{}
+\else
+  \usepackage{fontspec}
+  \setmainfont{Charis SIL}
+  \setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]
+\fi
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage[labelfont=bf,labelsep=period,font=small]{caption}
+\usepackage{cite}
+\usepackage{xurl}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\usepackage{adjustbox}
+\usepackage{float}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\urlstyle{same}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\cpp}{C\kern-.1em+\kern-.12em+}
+\newcommand{\repo}{https://github.com/csci-3081-20-f26/csci-3081-students-sprint-1-prototype-and-research-group-9}
+% \code{path#Lnn}{label}: link to the Sprint 1 prototype source at a fixed commit.
+\newcommand{\code}[2]{\href{\repo/blob/633898d5006ebe1ad46569516fb69f0e32bee508/#1}{\texttt{#2}}}
+
+% --- UML class boxes (plain TikZ) ---------------------------------------------
+\newcommand{\ucls}[2]{%
+  \begin{tabular}{@{\hspace{4pt}}l@{\hspace{4pt}}}
+    \multicolumn{1}{@{\hspace{4pt}}c@{\hspace{4pt}}}{\rule[-0.9ex]{0pt}{3.0ex}\normalfont\footnotesize\bfseries #1}\\
+    \hline
+    \rule{0pt}{2.4ex}#2\rule[-0.8ex]{0pt}{0pt}
+  \end{tabular}}
+\newcommand{\uifc}[2]{%
+  \begin{tabular}{@{\hspace{4pt}}l@{\hspace{4pt}}}
+    \multicolumn{1}{@{\hspace{4pt}}c@{\hspace{4pt}}}{\rule{0pt}{2.4ex}\normalfont\scriptsize «interface»}\\
+    \multicolumn{1}{@{\hspace{4pt}}c@{\hspace{4pt}}}{\rule[-0.9ex]{0pt}{0pt}\normalfont\footnotesize\bfseries #1}\\
+    \hline
+    \rule{0pt}{2.4ex}#2\rule[-0.8ex]{0pt}{0pt}
+  \end{tabular}}
+\tikzset{
+  cls/.style={draw, inner sep=0pt, fill=white, font=\ttfamily\scriptsize},
+  old/.style={fill=black!10},
+  box/.style={draw, inner sep=4pt, fill=black!10, font=\normalfont\scriptsize, align=center},
+  file/.style={draw, inner sep=4pt, fill=white, font=\ttfamily\scriptsize},
+  offline/.style={draw, dashed, rounded corners=2pt, inner sep=4pt, font=\normalfont\scriptsize, align=center},
+  lbl/.style={font=\normalfont\scriptsize\itshape, inner sep=2pt},
+  assoc/.style={-{Straight Barb[length=4pt,width=5pt]}},
+  dep/.style={dashed, -{Straight Barb[length=4pt,width=5pt]}},
+  real/.style={dashed, -{Triangle[open,length=6pt,width=7pt]}},
+  aggr/.style={{Diamond[open,length=9pt,width=5pt]}-{Straight Barb[length=4pt,width=5pt]}},
+  comp/.style={{Diamond[length=9pt,width=5pt]}-{Straight Barb[length=4pt,width=5pt]}},
+}
+
+\title{Writing 5: Design of Measured Building Geometry\\[0.3em]
+  \large Export to 3D Print extension, Sprint 2}
+\author{Qiming Lyu\\
+  Team Export to 3D Print (Group 9) $\cdot$ CSCI 3081W, Fall 2026}
+\date{November 15, 2026}
+
+\begin{document}
+\emergencystretch=2em
+\maketitle
+
+\section*{Introduction}
+
+Our team's extension exports a Gopher GIS scene as a 3D mesh and as matching stacks of cutting planes and slice images, so that the scene can be built as a physical model by 3D printing or by laser-cutting stacked layers. My Sprint 1 research~\cite{research} asked how the buildings in that export could look like the real ones. That task has two major parts. \emph{Geometry} is the solid shape of a building: its height, its roof and its massing.\footnote{\emph{Massing}: the overall arrangement of a building's volumes, for example a tall tower standing on a wider, lower base.} \emph{Texture} is what covers that shape, such as roof color and wall material. This document designs the geometry part, which is my feature for Sprint 2. Texture is a separate feature that builds on it, so I return to it only where the designs affect it.
+
+The feature is \emph{measured building geometry}: replace the guessed block that stands in for every building with a shape measured from public data. It fits the extension as its input. The other export features our team has planned (the mesh export, the cutting planes and the slice images) all read building shapes, so their output can only be as true as those shapes. The feature also feeds back into Gopher GIS itself. In the base prototype every building is a gray box, so better building data improves the 3D view for every team, with or without our export.
+
+The technical problem is that the prototype's buildings carry almost no 3D information. Each one is its OpenStreetMap (OSM) footprint\footnote{\emph{Footprint}: the outline of a building on the ground, as seen from directly above.} extruded straight up to one height with a flat roof (\code{src/Buildings.cpp\#L357}{extrudeFootprint}), a form that 3D city modeling calls LOD1.\footnote{\emph{LOD} (level of detail): the standard scale for 3D building models. LOD1 is a flat-topped block, LOD2 adds the roof shape, and LOD3 adds detail on the walls~\cite{biljecki}.} The height is the OSM \texttt{height} tag, else \texttt{building:levels}~$\times$~3~m, else a default of 8~m (\code{src/Buildings.cpp\#L195}{buildingHeight}). In the prototype's data, 46,364 of 50,754 buildings (91.4\%) fall through to the default, and none of the 109 buildings in the campus view has a \texttt{height} tag~\cite{research}. A building with parts of different heights is still a single block, because the app reads only whole-building outlines and never OSM's \texttt{building:part} outlines~\cite{s3db}. For our extension this is more than cosmetic. Every horizontal slice of a block is the same outline, so the cutting planes of a campus of blocks are stacks of identical shapes at guessed heights.
+
+Both designs below start from the same measurement. Sprint 1 found that the whole data area is covered by public-domain 2022 USGS lidar\footnote{\emph{Lidar}: laser ranging from an aircraft. It returns a cloud of measured 3D points on the ground, roofs and trees.} at about 64 points per square meter~\cite{threedep,opentopo}, which is dense enough to measure every roof. Processing it needs the PDAL library~\cite{pdalhag}, which is no longer packaged in current Debian or Ubuntu~\cite{repologypdal}. In both designs, therefore, a team script processes the lidar offline, in Docker or conda, and the app only reads the result. The designs differ in what that result is and in how much of the app has to change to use it.
+
+\section*{Design 1: A height file behind a chain of height sources}
+
+Design 1 keeps the block model and fixes the number. Offline, the script computes each lidar point's height above ground with PDAL's height-above-ground filters~\cite{pdalhag} and collects the points that fall inside each OSM footprint. The vendor did not classify building points~\cite{woolpert}, so the footprint does the selecting. A high percentile of those points (90th to 98th) becomes the building's height. The script writes one JSON file, \texttt{heights\_<S>\_<W>\_<N>\_<E>.json}, into the app's \texttt{data/osm} folder beside the buildings file, with the bounding-box naming that the app's \texttt{datafiles::find} already matches. Each entry is keyed by OSM type and ID, such as \texttt{way/123}, because OSM numbers ways and relations separately.
+
+In the app, the hard-coded call to \texttt{buildingHeight} in \code{src/Buildings.cpp\#L244}{BuildingData::parse} becomes a call to a \texttt{HeightResolver} (Figure~\ref{fig:design1}). The resolver holds an ordered list of \texttt{HeightSource} objects and returns the first answer. There are three sources: \texttt{LidarHeightSource} looks the building up in the height file, \texttt{OsmTagHeightSource} wraps the existing tag parsing, and \texttt{DefaultHeightSource} returns 8~m. Each source is a Strategy, the pattern we practiced in Lab~9, and the ordered list is a small Chain of Responsibility~\cite{gof}. The resolver also records which source answered in a new \texttt{Footprint::heightSource} field, so the on-screen notes can report how many buildings are measured and how many are still guessed. Nothing else changes. \texttt{extrudeFootprint}, \texttt{BuildingsLayer} and any exporter that reads \texttt{Footprint::height} get true heights without knowing where they came from.
+
+\begin{figure}[!htbp]
+  \centering
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tikzpicture}
+    \node[cls, old] (BD) {\ucls{BuildingData}{+ load(scene, note)\\+ parse(text, error)\\+ footprints()}};
+    \node[cls, right=24mm of BD] (HR) {\ucls{HeightResolver}{- sources (in order)\\+ resolve(key, tags)}};
+    \node[cls, right=24mm of HR] (HS) {\uifc{HeightSource}{+ name()\\+ lookup(key, tags, m)}};
+    \node[cls, old, below=12mm of BD] (FP) {\ucls{Footprint}{outer, holes\\height\\heightSource {\normalfont(new)}}};
+    \node[cls, below=16mm of HR] (L) {\ucls{LidarHeightSource}{- heights: key -> m\\+ load(scene)}};
+    \node[cls, anchor=north west] (O) at ($(L.north east)+(5mm,0)$) {\ucls{OsmTagHeightSource}{height tag, else\\levels x 3 m}};
+    \node[cls, anchor=north west] (D) at ($(O.north east)+(5mm,0)$) {\ucls{DefaultHeightSource}{always 8 m}};
+    \node[file, below=9mm of L] (F) {heights\_<bbox>.json};
+    \node[offline, left=14mm of F] (OFF) {Offline script (PDAL):\\2022 lidar + OSM footprints};
+
+    \draw[assoc] (BD) -- node[lbl, above]{parse() calls} (HR);
+    \draw[aggr] (HR) -- node[lbl, above]{tries in order} node[lbl, below]{1..*} (HS);
+    \draw[comp] (BD) -- node[lbl, right]{creates} (FP);
+    \coordinate (bar) at ($(HS.south)+(0,-7mm)$);
+    \draw[real] (bar) -- (HS.south);
+    \draw[dashed] (L.north) |- (bar);
+    \draw[dashed] (O.north) |- (bar);
+    \draw[dashed] (D.north) |- (bar);
+    \draw[dep] (L) -- node[lbl, right]{reads} (F);
+    \draw[assoc] (OFF) -- node[lbl, above]{writes} (F);
+  \end{tikzpicture}
+  \end{adjustbox}
+  \caption{Design 1 class diagram. Gray boxes are existing classes and white boxes are new. Only \texttt{parse} and \texttt{Footprint} change in the existing code.}
+  \label{fig:design1}
+\end{figure}
+
+I would implement it in three steps. The first is the offline script, tried on about 1~km$^2$ of campus. The second is the four new classes, unit-tested against a small hand-written height file, which is possible because \texttt{BuildingData} contains no OpenGL. The third is the one-line swap in \texttt{parse}. The design adds no library, since the app already bundles nlohmann/json. The result is every one of the roughly 51,000 buildings at its measured height. The limit is the model itself. Roofs stay flat, and a building gets one height, so a tower on a wide base becomes one tall block.
+
+\section*{Design 2: A building model behind source adapters}
+
+Design 2 replaces the footprint-plus-height model with surfaces, which lets a building have any roof and several heights. Offline, the open-source tool roofer~\cite{roofer} takes the same lidar and footprints and reconstructs each building as roof planes and walls. It writes CityJSON~\cite{cityjson}, an open JSON format for 3D city models in which each surface can be labeled as roof, wall or ground. Its most detailed output is LOD2: sloped roof planes, and separate volumes wherever the height jumps inside a footprint~\cite{biljecki}. Setbacks\footnote{\emph{Setback}: a step where the upper floors are narrower than the floors below, common near the top of older towers.} and a tower rising from a lower base therefore appear as they are. roofer is licensed under GPLv3, which is a second reason to run it as a separate offline tool and not link it into the app. The offline step would also convert the file's projected coordinates to the latitude and longitude the app uses, so the app needs no map-projection library.
+
+In the app, a new interface, \texttt{BuildingSource}, returns \texttt{BuildingModel} objects, each a list of labeled \texttt{Surface} polygons (Figure~\ref{fig:design2}). Each implementation is an Adapter~\cite{gof} from one data format to that common model. \texttt{ExtrusionSource} wraps today's \texttt{BuildingData} and produces the familiar block as one roof surface and its walls, with Design 1's resolver supplying the height. \texttt{CityJsonSource} parses roofer's file with the bundled nlohmann/json and triangulates it with the bundled earcut. \texttt{CompositeSource} asks the detailed source first and falls back to the block for any building the detailed file does not cover, so partial data never leaves holes in the map. \texttt{BuildingsLayer} no longer calls \texttt{extrudeFootprint}. It builds its mesh from whatever surfaces the source returns, and the export features read the same models, so the screen and the exported files cannot disagree.
+
+\begin{figure}[!htbp]
+  \centering
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tikzpicture}
+    \node[cls, old] (BL) {\ucls{BuildingsLayer}{+ load(frame)\\+ draw(viewProj)\\- addModel(mesh, model)}};
+    \node[cls, right=24mm of BL] (BS) {\uifc{BuildingSource}{+ load(scene, note)\\+ models()}};
+    \node[cls, right=24mm of BS] (BM) {\ucls{BuildingModel}{key (OSM type/id)\\source name}};
+    \node[cls, below=10mm of BM] (SF) {\ucls{Surface}{kind: Roof | Wall\\points (lat, lon, m)}};
+    \node[box, fill=white, rounded corners=3pt, below=10mm of BL] (EX) {Export features\\(mesh, cutting planes,\\slice images)};
+
+    \node[cls, anchor=north west] (ES) at ($(BL.west |- EX.south)+(0,-15mm)$) {\ucls{ExtrusionSource}{- data: BuildingData\\- resolver (Design 1)}};
+    \node[cls, anchor=north west] (CJ) at ($(ES.north east)+(5mm,0)$) {\ucls{CityJsonSource}{- path: string\\- parse(text, error)}};
+    \node[cls, anchor=north west] (CS) at ($(CJ.north east)+(5mm,0)$) {\ucls{CompositeSource}{- sources (in order)\\- pick by key}};
+    \node[cls, dashed, anchor=north west] (MS) at ($(CS.north east)+(5mm,0)$) {\ucls{MeshSource}{- path: string\\- readMesh(file, error)}};
+
+    \node[lbl, below=1mm of ES, text width=34mm, align=center] {OSM footprint + height:\\today's block (LOD1)};
+    \node[lbl, below=1mm of CJ, text width=34mm, align=center] {roofer output: roofs\\and height steps (LOD2)};
+    \node[lbl, below=1mm of CS, text width=34mm, align=center] {most detailed model\\available for each building};
+    \node[lbl, below=1mm of MS, text width=36mm, align=center] {optional: photo or blueprint\\mesh with wall depth (LOD3)};
+
+    \draw[assoc] (BL) -- node[lbl, above]{reads from} (BS);
+    \draw[dep] (BS) -- node[lbl, above]{returns} (BM);
+    \draw[comp] (BM) -- node[lbl, right]{1..*} (SF);
+    \draw[dep] (EX.east) -| node[lbl, pos=0.25, above]{same models} ([xshift=-8mm]BS.south);
+    \coordinate (bar2) at ($(ES.north)+(0,6mm)$);
+    \draw[dashed] (ES.north) |- (bar2 -| MS.north) -- (MS.north);
+    \draw[dashed] (CJ.north) -- (CJ.north |- bar2);
+    \draw[dashed] (CS.north) -- (CS.north |- bar2);
+    \draw[real] (BS.south |- bar2) -- (BS.south);
+  \end{tikzpicture}
+  \end{adjustbox}
+  \caption{Design 2 class diagram. The gray box is an existing class and white boxes are new. The rounded box stands for our team's other features. The dashed \texttt{MeshSource} is the optional enhanced level covered in the Discussion.}
+  \label{fig:design2}
+\end{figure}
+
+I would implement it in four steps: run roofer on the campus pilot area and inspect its output; define \texttt{BuildingModel} and move today's extrusion behind \texttt{ExtrusionSource} with no visible change; add \texttt{CityJsonSource}; and finally switch the layer and the exporters to \texttt{CompositeSource}. This design costs more. It changes a data model that the display and our team's mesh export both touch, so it has to be coordinated with that feature. It also rests on a tool I have not run. How roofer behaves on lidar without building classification, how long it takes on 51,000 buildings, and whether it carries OSM IDs and surface labels through to its output are all untested.
+
+\section*{Discussion}
+
+Working through both designs taught me that they are less different than they look. They share the data and the offline step, and Design 1's resolver survives inside Design 2's \texttt{ExtrusionSource}, so Design 1 is not thrown away if Design 2 follows. The real difference is the question the app asks of its data. Design 1 asks how tall an outline is. Design 2 asks which surfaces make up a building. The second question is the more general one, and that generality is what it costs.
+
+Both designs also share a limit. Lidar is flown from above, so it sees only the top of everything. Each design therefore gives one height for each point on the ground, with walls that drop straight down from the roof edge. That suits a building whose character is its outline and roof. It does not suit a building whose character is in its walls: a structural frame that stands a meter proud of the glass, recessed balconies, or upper floors that overhang the ground floor. Depth of this kind is facade relief,\footnote{\emph{Facade}: an exterior wall face of a building. \emph{Facade relief} is its depth, meaning anything that projects from the wall plane or is recessed into it.} and LOD2 flattens it.
+
+Capturing it is a third level, which I treat as an optional enhanced design and not as part of this feature. The building becomes a full 3D mesh (LOD3). It is made by photogrammetry\footnote{\emph{Photogrammetry}: reconstructing a 3D surface from many overlapping photographs.} from ground-level photos with free tools such as COLMAP and OpenMVS~\cite{colmap,openmvs}, or modeled by hand from the digitized blueprints that the University Archives hold for some campus buildings~\cite{umedia}. Either way the lidar roof goes on top, because the roof cannot be seen from the ground. In the app it is one more adapter, the dashed \texttt{MeshSource} in Figure~\ref{fig:design2}, and \texttt{CompositeSource} would prefer it for the buildings that have one. It is optional because it is expensive in a different way. It takes days of work per building, so it suits only one or a few chosen buildings. Its meshes are often not watertight, that is, not closed solids. Overhangs also break the assumption that lets the team slice the scene as a simple height map, so those buildings would need true mesh slicing, for example with the Manifold library~\cite{manifold}. Design 1 has no place to put such a mesh. Design 2 does, without changing its interface.
+
+Table~\ref{tab:compare} compares the three levels. Print scale decides between them. It is our team's decision, and it is still open. A desktop printer resolves about 0.4~mm~\cite{touchterrain}. If the model shows the whole 9.4~$\times$~7.8~km data area at about 1:20,000, only relative heights survive, and Design 1 delivers everything that can be seen. If it shows a few campus buildings at about 1:500, roof shapes and wall depth are several millimeters in size, so Design 2 earns its cost and the enhanced level becomes visible. I would choose Design 1 alone when the scale is small, when time is short, or when roofer fails its pilot. I would choose Design 2 when the scale is large enough to show roofs. I would also choose it when texture matters, because its roof and wall labels are where roof photos and wall materials attach, while a Design 1 block can carry only one roof color and one wall tint.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{The two designs and the optional enhanced level.}
+  \label{tab:compare}
+  \begin{tabularx}{\textwidth}{@{}P{0.15\textwidth}LLL@{}}
+    \toprule
+     & Design 1: height file & Design 2: building model & Optional: facade relief \\
+    \midrule
+    Shape captured & True height, flat roof (LOD1) & Roof shape, setbacks, parts at different heights (LOD2) & Depth on the walls, overhangs (LOD3) \\
+    \addlinespace[3pt]
+    Offline data & Lidar and footprints, with PDAL & Lidar and footprints, with roofer & Ground photos or blueprints, per building \\
+    \addlinespace[3pt]
+    Coverage & All 51,000 buildings & Campus first; whole area if run time allows & One or a few buildings \\
+    \addlinespace[3pt]
+    App change & Four small classes; one call in \texttt{parse} & New model and interface; layer and exporters change & One more adapter; true mesh slicing \\
+    \addlinespace[3pt]
+    New libraries & None & None & A mesh reader and a mesh slicer \\
+    \addlinespace[3pt]
+    Main risk & Low; percentile choice is untested & roofer is untested on this lidar & Days per building; meshes that are not watertight \\
+    \addlinespace[3pt]
+    At 1:20,000 & 8 m height is 0.4 mm & 3 m roof rise is 0.15 mm & 1 m frame depth is 0.05 mm \\
+    \addlinespace[3pt]
+    At 1:500 & 8 m height is 16 mm & 3 m roof rise is 6 mm & 1 m frame depth is 2 mm \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section*{Conclusion}
+
+I recommend building Design 1 now and shaping it so that Design 2 can follow. Design 1 replaces the 8~m guess that 91\% of buildings get today with one data file, four small classes and no new library, and it helps at every scale, in the base viewer as much as in our export. Its resolver should be written as the class that Design 2's \texttt{ExtrusionSource} will later wrap. Design 2 should follow for the campus if our team chooses a print scale large enough to show roofs and roofer passes a pilot. Facade relief should stay optional, for one chosen building, and only after Design 2 exists.
+
+One decision is our team's own: print scale, which decides whether Design 2 is worth its cost. Two decisions belong to the instructor team. The first is whether an offline preprocessing step outside the \cpp{} app is acceptable, since both designs depend on it. The second concerns the Gopher GIS refactor. If layers received their data through an interface like \texttt{BuildingSource}, and data classes stayed free of OpenGL as \texttt{BuildingData} already is, any team could swap in better data and tests could run without a window.
+
+Neither design has been built or run yet, so the next step is the lidar pilot on about 1~km$^2$ of campus that my Sprint 1 research proposed: measured heights for the 109 campus-view buildings, and one roofer run to settle its unknowns. Three smaller points are worth a look. Fetching OSM \texttt{building:part} outlines~\cite{s3db} would give stepped shapes for the buildings that mappers have already modeled, at no data cost. The viewer's vertical exaggeration stretches terrain but not buildings, which the export must handle on purpose and not by accident. Finally, texture is the second half of my task and should be designed next, starting with roof color from the public-domain 2025 Twin Cities orthophoto~\cite{metro2025}.
+
+\begin{thebibliography}{99}
+\small
+\interlinepenalty=10000 % keep each entry on one page
+
+\bibitem{research} Q. Lyu, Building realism research for Sprint 1 (report, topic notes and sources), summarized in Writing 4. \url{https://github.com/csci-3081-20-f26/csci-3081-students-sprint-1-prototype-and-research-group-9/tree/ming/building-realism-research/docs/ming-building-realism-research}
+
+\bibitem{biljecki} F. Biljecki, H. Ledoux and J. Stoter, ``An improved LOD specification for 3D building models,'' \emph{Computers, Environment and Urban Systems} 59 (2016), 25--37. \url{https://doi.org/10.1016/j.compenvurbsys.2016.04.005}
+
+\bibitem{s3db} OpenStreetMap Wiki, Simple 3D Buildings (\texttt{building:part}). \url{https://wiki.openstreetmap.org/wiki/Simple_3D_Buildings}
+
+\bibitem{threedep} USGS 3DEP Elevation Index, MN\_CentralMissRiver\_B22 quality level. \url{https://index.nationalmap.gov/arcgis/rest/services/3DEPElevationIndex/MapServer/24}
+
+\bibitem{opentopo} OpenTopography, MN\_CentralMissRiver\_4\_B22 dataset page. \url{https://portal.opentopography.org/usgsDataset?dsid=MN_CentralMissRiver_4_B22}
+
+\bibitem{pdalhag} PDAL height-above-ground filters (\texttt{filters.hag\_nn}, \texttt{filters.hag\_delaunay}). \url{https://github.com/PDAL/PDAL/commit/9a3a9445bc3f6e452c2fadf8970df1eb75ab28bc}
+
+\bibitem{repologypdal} Repology, PDAL versions. \url{https://repology.org/project/pdal/versions}
+
+\bibitem{woolpert} Woolpert, MN Central Mississippi River 4 2022 Lidar Mapping Report. \url{https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/metadata/MN_CentralMissRiver_B22/MN_CentralMissRiver_4_B22/reports/MN_Central_Miss%20_River_4_2022_Lidar_Mapping_Report.pdf}
+
+\bibitem{gof} E. Gamma, R. Helm, R. Johnson and J. Vlissides, \emph{Design Patterns: Elements of Reusable Object-Oriented Software}. Addison-Wesley, 1994.
+
+\bibitem{roofer} 3DBAG, roofer, and roofer v1.0.0 release. \url{https://github.com/3DBAG/roofer}, \url{https://github.com/3DBAG/roofer/releases}
+
+\bibitem{cityjson} CityJSON Specifications 2.0.1. \url{https://www.cityjson.org/specs/2.0.1/}
+
+\bibitem{colmap} COLMAP. \url{https://github.com/colmap/colmap}
+
+\bibitem{openmvs} OpenMVS. \url{https://github.com/cdcseacave/openMVS}
+
+\bibitem{umedia} UMedia, University Archives blueprint record. \url{https://lib-umedia-prd-app-01.oit.umn.edu/item/p16022coll244:686.json}
+
+\bibitem{manifold} Manifold. \url{https://github.com/elalish/manifold}
+
+\bibitem{touchterrain} TouchTerrain README (FDM detail limits). \url{https://github.com/ChHarding/TouchTerrain_for_CAGEO}
+
+\bibitem{metro2025} Minnesota Geospatial Commons, Twin Cities 2025 orthoimagery metadata. \url{https://mnatlas.org/metadata/2025_7_county.html}
+
+\end{thebibliography}
+
+\end{document}
