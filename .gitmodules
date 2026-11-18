@@ -13,3 +13,6 @@
 [submodule "Projs/sprint_2"]
 	path = Projs/sprint_2
 	url = github:csci-3081-20-f26/csci-3081-students-sprint-2-design-group-9.git
+[submodule "Projs/GopherGIS"]
+	path = Projs/GopherGIS
+	url = github:JalenLv/GopherGIS.git
